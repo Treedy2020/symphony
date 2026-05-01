@@ -40,6 +40,16 @@ defmodule SymphonyElixir.TrackerServer.IssueStore do
     Enum.filter(issues, fn issue -> Map.get(issue, "id") in set end)
   end
 
+  @spec update_state(Path.t(), String.t(), String.t()) ::
+          :ok | {:error, :unknown_issue_id | term()}
+  def update_state(path, id, new_state)
+      when is_binary(path) and is_binary(id) and is_binary(new_state) do
+    with {:ok, issues} <- load(path),
+         {:ok, updated} <- replace_state(issues, id, new_state) do
+      write_atomic(path, %{"issues" => updated})
+    end
+  end
+
   defp validate_top_level(%{"issues" => issues}) when is_list(issues), do: {:ok, issues}
   defp validate_top_level(_), do: {:error, :top_level_must_be_object_with_issues_array}
 
@@ -87,8 +97,36 @@ defmodule SymphonyElixir.TrackerServer.IssueStore do
     end
   end
 
+  defp replace_state(issues, id, new_state) do
+    {updated, found?} =
+      Enum.map_reduce(issues, false, fn issue, acc ->
+        if Map.get(issue, "id") == id do
+          new_issue =
+            issue
+            |> Map.put("state", new_state)
+            |> maybe_refresh_updated_at()
+
+          {new_issue, true}
+        else
+          {issue, acc}
+        end
+      end)
+
+    if found?, do: {:ok, updated}, else: {:error, :unknown_issue_id}
+  end
+
+  defp maybe_refresh_updated_at(issue) do
+    now = DateTime.utc_now() |> DateTime.to_iso8601()
+
+    cond do
+      Map.has_key?(issue, "updated_at") -> Map.put(issue, "updated_at", now)
+      Map.has_key?(issue, "updatedAt") -> Map.put(issue, "updatedAt", now)
+      true -> issue
+    end
+  end
+
   defp write_atomic(path, data) do
-    tmp = path <> ".tmp"
+    tmp = path <> ".tmp." <> Integer.to_string(System.unique_integer([:positive]))
 
     with :ok <- File.mkdir_p(Path.dirname(path)),
          {:ok, encoded} <- Jason.encode(data, pretty: true),

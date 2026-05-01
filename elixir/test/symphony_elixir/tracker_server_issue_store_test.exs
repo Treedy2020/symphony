@@ -120,4 +120,80 @@ defmodule SymphonyElixir.TrackerServerIssueStoreTest do
     issues = [%{"id" => "a", "state" => "Todo"}]
     assert IssueStore.by_ids(issues, ["a", "a"]) == [%{"id" => "a", "state" => "Todo"}]
   end
+
+  test "update_state writes new state and preserves other fields", %{json_file: file} do
+    File.write!(file, ~s({"issues":[
+      {"id":"a","identifier":"X-1","title":"t","state":"Todo","description":"d"}
+    ]}))
+
+    assert :ok = IssueStore.update_state(file, "a", "Done")
+
+    {:ok, [issue]} = IssueStore.load(file)
+    assert issue["state"] == "Done"
+    assert issue["description"] == "d"
+  end
+
+  test "update_state refreshes updated_at when present, leaves original timestamp behind", %{json_file: file} do
+    File.write!(file, ~s({"issues":[
+      {"id":"a","identifier":"X-1","title":"t","state":"Todo","updated_at":"2020-01-01T00:00:00Z"}
+    ]}))
+
+    assert :ok = IssueStore.update_state(file, "a", "Done")
+
+    {:ok, [issue]} = IssueStore.load(file)
+    assert issue["updated_at"] != "2020-01-01T00:00:00Z"
+    assert {:ok, _, _} = DateTime.from_iso8601(issue["updated_at"])
+  end
+
+  test "update_state does not add updated_at when absent", %{json_file: file} do
+    File.write!(file, ~s({"issues":[
+      {"id":"a","identifier":"X-1","title":"t","state":"Todo"}
+    ]}))
+
+    assert :ok = IssueStore.update_state(file, "a", "Done")
+
+    {:ok, [issue]} = IssueStore.load(file)
+    refute Map.has_key?(issue, "updated_at")
+  end
+
+  test "update_state refreshes camelCase updatedAt when present", %{json_file: file} do
+    File.write!(file, ~s({"issues":[
+      {"id":"a","identifier":"X-1","title":"t","state":"Todo","updatedAt":"2020-01-01T00:00:00Z"}
+    ]}))
+
+    assert :ok = IssueStore.update_state(file, "a", "Done")
+
+    {:ok, [issue]} = IssueStore.load(file)
+    assert issue["updatedAt"] != "2020-01-01T00:00:00Z"
+  end
+
+  test "update_state returns unknown_issue_id when no match", %{json_file: file} do
+    File.write!(file, ~s({"issues":[
+      {"id":"a","identifier":"X-1","title":"t","state":"Todo"}
+    ]}))
+
+    assert {:error, :unknown_issue_id} = IssueStore.update_state(file, "missing", "Done")
+  end
+
+  test "update_state preserves issue order", %{json_file: file} do
+    File.write!(file, ~s({"issues":[
+      {"id":"a","identifier":"X-1","title":"t","state":"Todo"},
+      {"id":"b","identifier":"X-2","title":"t","state":"Todo"},
+      {"id":"c","identifier":"X-3","title":"t","state":"Todo"}
+    ]}))
+
+    assert :ok = IssueStore.update_state(file, "b", "Done")
+
+    {:ok, issues} = IssueStore.load(file)
+    assert Enum.map(issues, & &1["id"]) == ["a", "b", "c"]
+  end
+
+  test "update_state leaves no .tmp file behind on success", %{json_file: file} do
+    File.write!(file, ~s({"issues":[
+      {"id":"a","identifier":"X-1","title":"t","state":"Todo"}
+    ]}))
+
+    assert :ok = IssueStore.update_state(file, "a", "Done")
+    refute File.exists?(file <> ".tmp")
+  end
 end
