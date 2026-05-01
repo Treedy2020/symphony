@@ -26,6 +26,20 @@ defmodule SymphonyElixir.TrackerServer.IssueStore do
     end
   end
 
+  @spec search([map()], [String.t()]) :: [map()]
+  def search(_issues, []), do: []
+
+  def search(issues, states) when is_list(issues) and is_list(states) do
+    set = MapSet.new(states)
+    Enum.filter(issues, fn issue -> Map.get(issue, "state") in set end)
+  end
+
+  @spec by_ids([map()], [String.t()]) :: [map()]
+  def by_ids(issues, ids) when is_list(issues) and is_list(ids) do
+    set = MapSet.new(ids)
+    Enum.filter(issues, fn issue -> Map.get(issue, "id") in set end)
+  end
+
   defp validate_top_level(%{"issues" => issues}) when is_list(issues), do: {:ok, issues}
   defp validate_top_level(_), do: {:error, :top_level_must_be_object_with_issues_array}
 

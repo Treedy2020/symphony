@@ -83,4 +83,41 @@ defmodule SymphonyElixir.TrackerServerIssueStoreTest do
     File.write!(file, ~s({"issues":["nope"]}))
     assert {:error, :issue_must_be_object} = IssueStore.load(file)
   end
+
+  test "search filters by state, deduplicating states list" do
+    issues = [
+      %{"id" => "a", "state" => "Todo"},
+      %{"id" => "b", "state" => "In Progress"},
+      %{"id" => "c", "state" => "Done"}
+    ]
+
+    assert IssueStore.search(issues, ["Todo", "In Progress", "Todo"]) == [
+             %{"id" => "a", "state" => "Todo"},
+             %{"id" => "b", "state" => "In Progress"}
+           ]
+  end
+
+  test "search returns [] when states is empty" do
+    issues = [%{"id" => "a", "state" => "Todo"}]
+    assert IssueStore.search(issues, []) == []
+  end
+
+  test "search is case-sensitive" do
+    issues = [%{"id" => "a", "state" => "Todo"}]
+    assert IssueStore.search(issues, ["todo"]) == []
+  end
+
+  test "by_ids returns matching issues, silently dropping unknown ids" do
+    issues = [
+      %{"id" => "a", "state" => "Todo"},
+      %{"id" => "b", "state" => "Done"}
+    ]
+
+    assert IssueStore.by_ids(issues, ["a", "missing"]) == [%{"id" => "a", "state" => "Todo"}]
+  end
+
+  test "by_ids deduplicates the input ids list" do
+    issues = [%{"id" => "a", "state" => "Todo"}]
+    assert IssueStore.by_ids(issues, ["a", "a"]) == [%{"id" => "a", "state" => "Todo"}]
+  end
 end
