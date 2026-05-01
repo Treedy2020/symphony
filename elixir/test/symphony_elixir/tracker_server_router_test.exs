@@ -101,4 +101,28 @@ defmodule SymphonyElixir.TrackerServerRouterTest do
     assert conn.status == 200
     assert Jason.decode!(conn.resp_body) == %{"issues" => []}
   end
+
+  test "POST /issues/:id/comments writes a JSONL line and returns success", %{comments_file: comments} do
+    conn = call(:post, "/issues/a/comments", %{"body" => "agent: starting"})
+    assert conn.status == 200
+    assert Jason.decode!(conn.resp_body) == %{"success" => true}
+
+    [line] = comments |> File.read!() |> String.split("\n", trim: true)
+    assert %{"issue_id" => "a", "body" => "agent: starting", "at" => _} = Jason.decode!(line)
+  end
+
+  test "POST /issues/:id/comments with empty body returns 400" do
+    conn = call(:post, "/issues/a/comments", %{"body" => ""})
+    assert conn.status == 400
+  end
+
+  test "POST /issues/:id/comments with missing body returns 400" do
+    conn = call(:post, "/issues/a/comments", %{})
+    assert conn.status == 400
+  end
+
+  test "POST /issues/:id/comments does not validate id existence" do
+    conn = call(:post, "/issues/does-not-exist/comments", %{"body" => "stray"})
+    assert conn.status == 200
+  end
 end

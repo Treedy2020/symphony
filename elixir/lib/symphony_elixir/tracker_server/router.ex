@@ -5,7 +5,7 @@ defmodule SymphonyElixir.TrackerServer.Router do
   """
   use Plug.Router
 
-  alias SymphonyElixir.TrackerServer.IssueStore
+  alias SymphonyElixir.TrackerServer.{CommentLog, IssueStore}
 
   plug :match
   plug Plug.Logger, log: :info
@@ -26,6 +26,13 @@ defmodule SymphonyElixir.TrackerServer.Router do
     end
   end
 
+  post "/issues/:id/comments" do
+    case read_json_body(conn) do
+      {:ok, body, conn} -> handle_comment(conn, id, body)
+      {:error, conn} -> bad_request(conn)
+    end
+  end
+
   match _ do
     send_json(conn, 404, %{"success" => false, "error" => "not_found"})
   end
@@ -38,6 +45,24 @@ defmodule SymphonyElixir.TrackerServer.Router do
         case IssueStore.load(file) do
           {:ok, issues} ->
             send_json(conn, 200, %{"issues" => IssueStore.search(issues, states)})
+
+          {:error, reason} ->
+            send_json(conn, 500, %{"success" => false, "error" => inspect(reason)})
+        end
+
+      :error ->
+        bad_request(conn)
+    end
+  end
+
+  defp handle_comment(conn, id, body) do
+    case fetch_non_empty_string(body, "body") do
+      {:ok, comment_body} ->
+        log = Application.fetch_env!(:symphony_elixir, :tracker_server_comment_log)
+
+        case CommentLog.append(log, id, comment_body) do
+          :ok ->
+            send_json(conn, 200, %{"success" => true})
 
           {:error, reason} ->
             send_json(conn, 500, %{"success" => false, "error" => inspect(reason)})
