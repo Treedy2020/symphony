@@ -39,6 +39,7 @@ defmodule SymphonyElixir.Tracker do
   @spec adapter() :: module()
   def adapter do
     case Config.settings!().tracker.kind do
+      "custom_http" -> SymphonyElixir.Tracker.CustomHttp
       "memory" -> SymphonyElixir.Tracker.Memory
       _ -> SymphonyElixir.Linear.Adapter
     end

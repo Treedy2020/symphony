@@ -107,6 +107,29 @@ You are working on a Linear issue {{ issue.identifier }}.
 Title: {{ issue.title }} Body: {{ issue.description }}
 ```
 
+For local or internal trackers, use `custom_http` instead of Linear:
+
+```yaml
+tracker:
+  kind: custom_http
+  endpoint: "http://127.0.0.1:8787"
+  api_key: $SYMPHONY_TRACKER_API_KEY
+  active_states: ["Todo", "In Progress"]
+  terminal_states: ["Done", "Closed", "Cancelled", "Canceled", "Duplicate"]
+```
+
+The custom HTTP tracker expects a small JSON API:
+
+- `POST /issues/search` with `{"states":["Todo"]}` returns `{"issues":[...]}` or a bare issue array.
+- `POST /issues/by_ids` with `{"ids":["issue-1"]}` returns `{"issues":[...]}` or a bare issue array.
+- `POST /issues/:id/comments` with `{"body":"..."}` returns any 2xx response, optionally `{"success":true}`.
+- `PATCH /issues/:id` with `{"state":"Done"}` returns any 2xx response, optionally `{"success":true}`.
+
+Issue objects should include `id`, `identifier`, `title`, and `state`. Optional fields are
+`description`, `priority`, `branch_name` or `branchName`, `url`, `assignee_id` or `assigneeId`,
+`labels`, `blocked_by` or `blockedBy`, `assigned_to_worker` or `assignedToWorker`, `created_at` or
+`createdAt`, and `updated_at` or `updatedAt`.
+
 Notes:
 
 - If a value is missing, defaults are used.

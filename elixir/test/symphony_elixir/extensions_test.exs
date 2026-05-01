@@ -5,6 +5,7 @@ defmodule SymphonyElixir.ExtensionsTest do
   import Phoenix.LiveViewTest
 
   alias SymphonyElixir.Linear.Adapter
+  alias SymphonyElixir.Tracker.CustomHttp
   alias SymphonyElixir.Tracker.Memory
 
   @endpoint SymphonyElixirWeb.Endpoint
@@ -203,6 +204,108 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
     assert SymphonyElixir.Tracker.adapter() == Adapter
+  end
+
+  test "tracker delegates to custom http adapter" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "custom_http",
+      tracker_endpoint: "http://127.0.0.1:8787",
+      tracker_api_token: "local-token"
+    )
+
+    request_fun = fn opts ->
+      send(self(), {:custom_http_request, opts})
+
+      case {Keyword.fetch!(opts, :method), Keyword.fetch!(opts, :url)} do
+        {:post, "http://127.0.0.1:8787/issues/search"} ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "issues" => [
+                 %{
+                   "id" => "issue-1",
+                   "identifier" => "LOCAL-1",
+                   "title" => "Local task",
+                   "state" => "Todo",
+                   "branch_name" => "treedy/local-1",
+                   "labels" => ["Backend"],
+                   "blocked_by" => [%{"id" => "issue-0", "state" => "Done"}]
+                 }
+               ]
+             }
+           }}
+
+        {:post, "http://127.0.0.1:8787/issues/by_ids"} ->
+          {:ok,
+           %{
+             status: 200,
+             body: [%{"id" => "issue-1", "identifier" => "LOCAL-1", "state" => "Done"}]
+           }}
+
+        {:post, "http://127.0.0.1:8787/issues/issue-1/comments"} ->
+          {:ok, %{status: 200, body: %{"success" => true}}}
+
+        {:patch, "http://127.0.0.1:8787/issues/issue-1"} ->
+          {:ok, %{status: 204, body: nil}}
+      end
+    end
+
+    Application.put_env(:symphony_elixir, :custom_http_tracker_request_fun, request_fun)
+
+    assert :ok = Config.validate!()
+    assert SymphonyElixir.Tracker.adapter() == CustomHttp
+
+    assert {:ok, [issue]} = SymphonyElixir.Tracker.fetch_candidate_issues()
+    assert issue.id == "issue-1"
+    assert issue.identifier == "LOCAL-1"
+    assert issue.state == "Todo"
+    assert issue.branch_name == "treedy/local-1"
+    assert issue.labels == ["backend"]
+    assert issue.blocked_by == [%{"id" => "issue-0", "state" => "Done"}]
+
+    assert_receive {:custom_http_request, search_opts}
+    assert Keyword.fetch!(search_opts, :method) == :post
+    assert Keyword.fetch!(search_opts, :json) == %{"states" => ["Todo", "In Progress"]}
+    assert {"authorization", "Bearer local-token"} in Keyword.fetch!(search_opts, :headers)
+
+    assert {:ok, [refreshed]} = SymphonyElixir.Tracker.fetch_issue_states_by_ids(["issue-1"])
+    assert refreshed.state == "Done"
+    assert_receive {:custom_http_request, by_ids_opts}
+    assert Keyword.fetch!(by_ids_opts, :json) == %{"ids" => ["issue-1"]}
+
+    assert :ok = SymphonyElixir.Tracker.create_comment("issue-1", "hello")
+    assert_receive {:custom_http_request, comment_opts}
+    assert Keyword.fetch!(comment_opts, :json) == %{"body" => "hello"}
+
+    assert :ok = SymphonyElixir.Tracker.update_issue_state("issue-1", "Done")
+    assert_receive {:custom_http_request, state_opts}
+    assert Keyword.fetch!(state_opts, :json) == %{"state" => "Done"}
+  end
+
+  test "custom http adapter decodes payload and error shapes" do
+    assert {:error, :custom_http_unknown_payload} =
+             CustomHttp.decode_issues_response_for_test(%{"issues" => "bad"})
+
+    assert {:ok, [issue]} =
+             CustomHttp.decode_issues_response_for_test([
+               %{
+                 id: 123,
+                 identifier: "LOCAL-123",
+                 title: "Atom-keyed task",
+                 state: "In Progress",
+                 branch_name: "branch",
+                 assigned_to_worker: false,
+                 created_at: "2026-05-01T00:00:00Z"
+               }
+             ])
+
+    assert issue.id == "123"
+    assert issue.assigned_to_worker == false
+    assert %DateTime{} = issue.created_at
+
+    assert {:error, :custom_http_unknown_payload} =
+             CustomHttp.decode_issues_response_for_test(%{"unexpected" => []})
   end
 
   test "linear adapter delegates reads and validates mutation responses" do

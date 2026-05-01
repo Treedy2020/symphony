@@ -119,7 +119,7 @@ defmodule SymphonyElixir.Config do
       is_nil(settings.tracker.kind) ->
         {:error, :missing_tracker_kind}
 
-      settings.tracker.kind not in ["linear", "memory"] ->
+      settings.tracker.kind not in ["custom_http", "linear", "memory"] ->
         {:error, {:unsupported_tracker_kind, settings.tracker.kind}}
 
       settings.tracker.kind == "linear" and not is_binary(settings.tracker.api_key) ->
@@ -128,10 +128,20 @@ defmodule SymphonyElixir.Config do
       settings.tracker.kind == "linear" and not is_binary(settings.tracker.project_slug) ->
         {:error, :missing_linear_project_slug}
 
+      settings.tracker.kind == "custom_http" and
+          missing_custom_http_endpoint?(settings.tracker.endpoint) ->
+        {:error, :missing_custom_http_endpoint}
+
       true ->
         :ok
     end
   end
+
+  defp missing_custom_http_endpoint?(endpoint) when is_binary(endpoint) do
+    endpoint == "" or endpoint == "https://api.linear.app/graphql"
+  end
+
+  defp missing_custom_http_endpoint?(_endpoint), do: true
 
   defp format_config_error(reason) do
     case reason do
