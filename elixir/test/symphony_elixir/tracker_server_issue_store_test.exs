@@ -194,6 +194,13 @@ defmodule SymphonyElixir.TrackerServerIssueStoreTest do
     ]}))
 
     assert :ok = IssueStore.update_state(file, "a", "Done")
-    refute File.exists?(file <> ".tmp")
+    assert Path.wildcard(file <> ".tmp.*") == []
+  end
+
+  test "update_state on missing file auto-creates empty store and returns unknown_issue_id", %{json_file: file} do
+    refute File.exists?(file)
+    assert {:error, :unknown_issue_id} = IssueStore.update_state(file, "anything", "Done")
+    assert File.exists?(file)
+    assert {:ok, []} = IssueStore.load(file)
   end
 end
