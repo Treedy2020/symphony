@@ -25,6 +25,12 @@ defmodule SymphonyElixir.MixProject do
           SymphonyElixir.HttpServer,
           SymphonyElixir.StatusDashboard,
           SymphonyElixir.Tracker.CustomHttp,
+          SymphonyElixir.TrackerServer.Application,
+          SymphonyElixir.TrackerServer.CLI,
+          SymphonyElixir.TrackerServer.CommentLog,
+          SymphonyElixir.TrackerServer.IssueStore,
+          SymphonyElixir.TrackerServer.Router,
+          Mix.Tasks.TrackerServer.Escript,
           SymphonyElixir.LogFile,
           SymphonyElixir.Workspace,
           SymphonyElixirWeb.DashboardLive,
@@ -83,17 +89,28 @@ defmodule SymphonyElixir.MixProject do
   defp aliases do
     [
       setup: ["deps.get"],
-      build: ["escript.build"],
+      build: ["escript.build", "tracker_server.escript"],
       lint: ["specs.check", "credo --strict"]
     ]
   end
 
   defp escript do
-    [
-      app: nil,
-      main_module: SymphonyElixir.CLI,
-      name: "symphony",
-      path: "bin/symphony"
-    ]
+    case System.get_env("MIX_ESCRIPT_TARGET") do
+      "tracker" ->
+        [
+          app: nil,
+          main_module: SymphonyElixir.TrackerServer.CLI,
+          name: "symphony-tracker",
+          path: "bin/symphony-tracker"
+        ]
+
+      _ ->
+        [
+          app: nil,
+          main_module: SymphonyElixir.CLI,
+          name: "symphony",
+          path: "bin/symphony"
+        ]
+    end
   end
 end
