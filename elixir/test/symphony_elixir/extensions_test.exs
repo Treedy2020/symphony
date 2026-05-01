@@ -850,4 +850,77 @@ defmodule SymphonyElixir.ExtensionsTest do
       end
     end
   end
+
+  defp find_free_port do
+    {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false, ip: {127, 0, 0, 1}])
+    {:ok, port} = :inet.port(listen)
+    :gen_tcp.close(listen)
+    port
+  end
+
+  test "custom http adapter talks to a real local tracker server end-to-end" do
+    dir = Path.join(System.tmp_dir!(), "tracker-e2e-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    on_exit(fn -> File.rm_rf!(dir) end)
+
+    file = Path.join(dir, "tracker.json")
+    comments = Path.join(dir, "tracker.comments.jsonl")
+
+    File.write!(file, ~s({"issues":[
+      {"id":"e2e-1","identifier":"E2E-1","title":"end to end","state":"Todo"}
+    ]}))
+
+    log_name = :"e2e_log_#{System.unique_integer([:positive])}"
+    {:ok, _log_pid} = SymphonyElixir.TrackerServer.CommentLog.start_link(name: log_name, path: comments)
+
+    Application.put_env(:symphony_elixir, :tracker_server_file, file)
+    Application.put_env(:symphony_elixir, :tracker_server_comment_log, log_name)
+    Application.delete_env(:symphony_elixir, :tracker_server_token)
+
+    on_exit(fn ->
+      Application.delete_env(:symphony_elixir, :tracker_server_file)
+      Application.delete_env(:symphony_elixir, :tracker_server_comment_log)
+    end)
+
+    port = find_free_port()
+
+    {:ok, server_pid} =
+      Bandit.start_link(
+        plug: SymphonyElixir.TrackerServer.Router,
+        scheme: :http,
+        port: port,
+        ip: {127, 0, 0, 1}
+      )
+
+    on_exit(fn ->
+      if Process.alive?(server_pid), do: Process.exit(server_pid, :normal)
+    end)
+
+    # Reset client request fun to the real Req.request so HTTP actually flows.
+    Application.delete_env(:symphony_elixir, :custom_http_tracker_request_fun)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "custom_http",
+      tracker_endpoint: "http://127.0.0.1:#{port}",
+      tracker_api_token: nil
+    )
+
+    assert :ok = Config.validate!()
+
+    assert {:ok, [issue]} = SymphonyElixir.Tracker.fetch_candidate_issues()
+    assert issue.id == "e2e-1"
+    assert issue.state == "Todo"
+
+    assert :ok = SymphonyElixir.Tracker.update_issue_state("e2e-1", "Done")
+
+    assert {:ok, [refreshed]} = SymphonyElixir.Tracker.fetch_issue_states_by_ids(["e2e-1"])
+    assert refreshed.state == "Done"
+
+    assert :ok = SymphonyElixir.Tracker.create_comment("e2e-1", "agent: e2e ran")
+
+    # CommentLog uses GenServer.call, so the HTTP 200 already implies the
+    # disk write completed; no sleep needed.
+    [line] = comments |> File.read!() |> String.split("\n", trim: true)
+    assert %{"issue_id" => "e2e-1", "body" => "agent: e2e ran"} = Jason.decode!(line)
+  end
 end
