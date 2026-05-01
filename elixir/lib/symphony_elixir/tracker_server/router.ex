@@ -45,78 +45,62 @@ defmodule SymphonyElixir.TrackerServer.Router do
   end
 
   defp handle_search(conn, body) do
-    case fetch_string_array(body, "states") do
-      {:ok, states} ->
-        file = Application.fetch_env!(:symphony_elixir, :tracker_server_file)
+    with_field(conn, body, "states", &fetch_string_array/2, fn states ->
+      file = Application.fetch_env!(:symphony_elixir, :tracker_server_file)
 
-        case IssueStore.load(file) do
-          {:ok, issues} ->
-            send_json(conn, 200, %{"issues" => IssueStore.search(issues, states)})
+      case IssueStore.load(file) do
+        {:ok, issues} ->
+          send_json(conn, 200, %{"issues" => IssueStore.search(issues, states)})
 
-          {:error, reason} ->
-            send_json(conn, 500, %{"success" => false, "error" => inspect(reason)})
-        end
-
-      :error ->
-        bad_request(conn)
-    end
-  end
-
-  defp handle_comment(conn, id, body) do
-    case fetch_non_empty_string(body, "body") do
-      {:ok, comment_body} ->
-        log = Application.fetch_env!(:symphony_elixir, :tracker_server_comment_log)
-
-        case CommentLog.append(log, id, comment_body) do
-          :ok ->
-            send_json(conn, 200, %{"success" => true})
-
-          {:error, reason} ->
-            send_json(conn, 500, %{"success" => false, "error" => inspect(reason)})
-        end
-
-      :error ->
-        bad_request(conn)
-    end
-  end
-
-  defp handle_patch(conn, id, body) do
-    case fetch_non_empty_string(body, "state") do
-      {:ok, new_state} ->
-        file = Application.fetch_env!(:symphony_elixir, :tracker_server_file)
-
-        case IssueStore.update_state(file, id, new_state) do
-          :ok ->
-            send_json(conn, 200, %{"success" => true})
-
-          {:error, :unknown_issue_id} ->
-            send_json(conn, 404, %{"success" => false, "error" => "unknown_issue_id"})
-
-          {:error, reason} ->
-            send_json(conn, 500, %{"success" => false, "error" => inspect(reason)})
-        end
-
-      :error ->
-        bad_request(conn)
-    end
+        {:error, reason} ->
+          send_json(conn, 500, %{"success" => false, "error" => inspect(reason)})
+      end
+    end)
   end
 
   defp handle_by_ids(conn, body) do
-    case fetch_string_array(body, "ids") do
-      {:ok, ids} ->
-        file = Application.fetch_env!(:symphony_elixir, :tracker_server_file)
+    with_field(conn, body, "ids", &fetch_string_array/2, fn ids ->
+      file = Application.fetch_env!(:symphony_elixir, :tracker_server_file)
 
-        case IssueStore.load(file) do
-          {:ok, issues} ->
-            send_json(conn, 200, %{"issues" => IssueStore.by_ids(issues, ids)})
+      case IssueStore.load(file) do
+        {:ok, issues} ->
+          send_json(conn, 200, %{"issues" => IssueStore.by_ids(issues, ids)})
 
-          {:error, reason} ->
-            send_json(conn, 500, %{"success" => false, "error" => inspect(reason)})
-        end
+        {:error, reason} ->
+          send_json(conn, 500, %{"success" => false, "error" => inspect(reason)})
+      end
+    end)
+  end
 
-      :error ->
-        bad_request(conn)
-    end
+  defp handle_comment(conn, id, body) do
+    with_field(conn, body, "body", &fetch_non_empty_string/2, fn comment_body ->
+      log = Application.fetch_env!(:symphony_elixir, :tracker_server_comment_log)
+
+      case CommentLog.append(log, id, comment_body) do
+        :ok ->
+          send_json(conn, 200, %{"success" => true})
+
+        {:error, reason} ->
+          send_json(conn, 500, %{"success" => false, "error" => inspect(reason)})
+      end
+    end)
+  end
+
+  defp handle_patch(conn, id, body) do
+    with_field(conn, body, "state", &fetch_non_empty_string/2, fn new_state ->
+      file = Application.fetch_env!(:symphony_elixir, :tracker_server_file)
+
+      case IssueStore.update_state(file, id, new_state) do
+        :ok ->
+          send_json(conn, 200, %{"success" => true})
+
+        {:error, :unknown_issue_id} ->
+          send_json(conn, 404, %{"success" => false, "error" => "unknown_issue_id"})
+
+        {:error, reason} ->
+          send_json(conn, 500, %{"success" => false, "error" => inspect(reason)})
+      end
+    end)
   end
 
   defp authenticate(conn, _opts) do
@@ -149,6 +133,13 @@ defmodule SymphonyElixir.TrackerServer.Router do
 
   defp bad_request(conn) do
     send_json(conn, 400, %{"success" => false, "error" => "bad_request"})
+  end
+
+  defp with_field(conn, body, key, fetcher, fun) do
+    case fetcher.(body, key) do
+      {:ok, value} -> fun.(value)
+      :error -> bad_request(conn)
+    end
   end
 
   defp read_json_body(conn) do

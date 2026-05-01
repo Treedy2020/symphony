@@ -155,4 +155,10 @@ defmodule SymphonyElixir.TrackerServerRouterTest do
     conn = call(:get, "/no-such-thing", %{})
     assert conn.status == 404
   end
+
+  test "PATCH on an unknown route with token configured and wrong header still returns 401" do
+    Application.put_env(:symphony_elixir, :tracker_server_token, "secret")
+    conn = call(:patch, "/no-such-thing", %{"state" => "Done"}, [{"authorization", "Bearer wrong"}])
+    assert conn.status == 401
+  end
 end
