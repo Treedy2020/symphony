@@ -2,6 +2,15 @@ defmodule SymphonyElixir.TrackerServer.CommentLog do
   @moduledoc """
   Serialized append-only writer for the local custom_http tracker's
   `tracker.comments.jsonl` sidecar.
+
+  Each `append/3` is a `GenServer.call`, so callers know the JSONL line
+  has been written to the OS file before the call returns. Writes are
+  flushed to the kernel page cache but **not** `fsync`ed — adequate for
+  a local dev/test tracker but not durable across power loss.
+
+  This GenServer must be the sole writer to its `:path`. Concurrent
+  appends from a second writer would interleave on file boundaries
+  larger than `PIPE_BUF` (4 KiB on Linux/macOS).
   """
   use GenServer
 

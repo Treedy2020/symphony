@@ -41,6 +41,20 @@ defmodule SymphonyElixir.TrackerServerCommentLogTest do
     assert [_one] = lines(file)
   end
 
+  test "append returns error tuple and the process stays alive when the path is unwritable" do
+    name = :"comment_log_err_#{System.unique_integer([:positive])}"
+
+    # Use a file path under a non-existent absolute parent that cannot be
+    # auto-created (root-owned, not writable by the test user). `/proc` on
+    # Linux and `/dev` on macOS are both real read-only mount points where
+    # mkdir_p will fail with EACCES or EROFS.
+    bad_path = "/dev/symphony-tracker-test-#{System.unique_integer([:positive])}/comments.jsonl"
+
+    {:ok, pid} = CommentLog.start_link(name: name, path: bad_path)
+    assert {:error, _reason} = CommentLog.append(name, "task-1", "body")
+    assert Process.alive?(pid)
+  end
+
   test "concurrent callers all see :ok and the file ends with N lines", %{jsonl_file: file} do
     name = :"comment_log_conc_#{System.unique_integer([:positive])}"
     {:ok, _pid} = CommentLog.start_link(name: name, path: file)
