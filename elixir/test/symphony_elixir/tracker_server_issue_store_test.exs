@@ -55,6 +55,30 @@ defmodule SymphonyElixir.TrackerServerIssueStoreTest do
     assert {:error, {:duplicate_ids, ["dup"]}} = IssueStore.load(file)
   end
 
+  test "load accepts multiple valid issues", %{json_file: file} do
+    File.write!(file, ~s({"issues":[
+      {"id":"a","identifier":"X-1","title":"t","state":"Todo"},
+      {"id":"b","identifier":"X-2","title":"t","state":"Done"}
+    ]}))
+
+    assert {:ok, [_, _]} = IssueStore.load(file)
+  end
+
+  test "load accepts an explicitly empty issues array", %{json_file: file} do
+    File.write!(file, ~s({"issues":[]}))
+    assert {:ok, []} = IssueStore.load(file)
+  end
+
+  test "load deduplicates the duplicate ids list when an id appears 3+ times", %{json_file: file} do
+    File.write!(file, ~s({"issues":[
+      {"id":"dup","identifier":"X-1","title":"t","state":"Todo"},
+      {"id":"dup","identifier":"X-2","title":"t","state":"Todo"},
+      {"id":"dup","identifier":"X-3","title":"t","state":"Todo"}
+    ]}))
+
+    assert {:error, {:duplicate_ids, ["dup"]}} = IssueStore.load(file)
+  end
+
   test "load rejects an issue that is not a map", %{json_file: file} do
     File.write!(file, ~s({"issues":["nope"]}))
     assert {:error, :issue_must_be_object} = IssueStore.load(file)
