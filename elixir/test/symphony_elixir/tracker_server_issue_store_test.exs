@@ -26,4 +26,37 @@ defmodule SymphonyElixir.TrackerServerIssueStoreTest do
     File.write!(file, "{this is not json")
     assert {:error, {:invalid_json, _}} = IssueStore.load(file)
   end
+
+  test "load rejects top-level array form", %{json_file: file} do
+    File.write!(file, ~s([{"id":"a","identifier":"X-1","title":"t","state":"Todo"}]))
+    assert {:error, :top_level_must_be_object_with_issues_array} = IssueStore.load(file)
+  end
+
+  test "load rejects top-level non-list issues", %{json_file: file} do
+    File.write!(file, ~s({"issues":"oops"}))
+    assert {:error, :top_level_must_be_object_with_issues_array} = IssueStore.load(file)
+  end
+
+  test "load rejects an issue missing required fields", %{json_file: file} do
+    File.write!(file, ~s({"issues":[{"id":"a","identifier":"X-1","title":"t"}]}))
+    assert {:error, {:missing_or_blank_field, "state", _}} = IssueStore.load(file)
+  end
+
+  test "load rejects blank required field", %{json_file: file} do
+    File.write!(file, ~s({"issues":[{"id":"a","identifier":"","title":"t","state":"Todo"}]}))
+    assert {:error, {:missing_or_blank_field, "identifier", _}} = IssueStore.load(file)
+  end
+
+  test "load rejects duplicate ids", %{json_file: file} do
+    File.write!(file, ~s({"issues":[
+      {"id":"dup","identifier":"X-1","title":"t","state":"Todo"},
+      {"id":"dup","identifier":"X-2","title":"t","state":"Todo"}
+    ]}))
+    assert {:error, {:duplicate_ids, ["dup"]}} = IssueStore.load(file)
+  end
+
+  test "load rejects an issue that is not a map", %{json_file: file} do
+    File.write!(file, ~s({"issues":["nope"]}))
+    assert {:error, :issue_must_be_object} = IssueStore.load(file)
+  end
 end
