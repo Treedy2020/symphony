@@ -33,6 +33,13 @@ defmodule SymphonyElixir.TrackerServer.Router do
     end
   end
 
+  patch "/issues/:id" do
+    case read_json_body(conn) do
+      {:ok, body, conn} -> handle_patch(conn, id, body)
+      {:error, conn} -> bad_request(conn)
+    end
+  end
+
   match _ do
     send_json(conn, 404, %{"success" => false, "error" => "not_found"})
   end
@@ -63,6 +70,27 @@ defmodule SymphonyElixir.TrackerServer.Router do
         case CommentLog.append(log, id, comment_body) do
           :ok ->
             send_json(conn, 200, %{"success" => true})
+
+          {:error, reason} ->
+            send_json(conn, 500, %{"success" => false, "error" => inspect(reason)})
+        end
+
+      :error ->
+        bad_request(conn)
+    end
+  end
+
+  defp handle_patch(conn, id, body) do
+    case fetch_non_empty_string(body, "state") do
+      {:ok, new_state} ->
+        file = Application.fetch_env!(:symphony_elixir, :tracker_server_file)
+
+        case IssueStore.update_state(file, id, new_state) do
+          :ok ->
+            send_json(conn, 200, %{"success" => true})
+
+          {:error, :unknown_issue_id} ->
+            send_json(conn, 404, %{"success" => false, "error" => "unknown_issue_id"})
 
           {:error, reason} ->
             send_json(conn, 500, %{"success" => false, "error" => inspect(reason)})

@@ -125,4 +125,34 @@ defmodule SymphonyElixir.TrackerServerRouterTest do
     conn = call(:post, "/issues/does-not-exist/comments", %{"body" => "stray"})
     assert conn.status == 200
   end
+
+  test "PATCH /issues/:id updates state and returns success", %{tracker_file: file} do
+    conn = call(:patch, "/issues/a", %{"state" => "Done"})
+    assert conn.status == 200
+    assert Jason.decode!(conn.resp_body) == %{"success" => true}
+
+    {:ok, %{"issues" => issues}} = Jason.decode(File.read!(file))
+    assert Enum.find(issues, &(&1["id"] == "a"))["state"] == "Done"
+  end
+
+  test "PATCH /issues/:id with empty state returns 400" do
+    conn = call(:patch, "/issues/a", %{"state" => ""})
+    assert conn.status == 400
+  end
+
+  test "PATCH /issues/:id with missing state returns 400" do
+    conn = call(:patch, "/issues/a", %{})
+    assert conn.status == 400
+  end
+
+  test "PATCH /issues/:id with unknown id returns 404" do
+    conn = call(:patch, "/issues/missing", %{"state" => "Done"})
+    assert conn.status == 404
+    assert %{"success" => false, "error" => "unknown_issue_id"} = Jason.decode!(conn.resp_body)
+  end
+
+  test "unknown route returns 404" do
+    conn = call(:get, "/no-such-thing", %{})
+    assert conn.status == 404
+  end
 end
