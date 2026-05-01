@@ -77,7 +77,6 @@ defmodule SymphonyElixir.TrackerServer.IssueStore do
   defp validate_issue(_), do: {:error, :issue_must_be_object}
 
   defp issue_summary(issue) when is_map(issue), do: Map.take(issue, ["id", "identifier"])
-  defp issue_summary(_), do: %{}
 
   defp validate_unique_ids(issues) do
     ids = Enum.map(issues, &Map.get(&1, "id"))
@@ -129,8 +128,7 @@ defmodule SymphonyElixir.TrackerServer.IssueStore do
     tmp = path <> ".tmp." <> Integer.to_string(System.unique_integer([:positive]))
 
     result =
-      with :ok <- File.mkdir_p(Path.dirname(path)),
-           {:ok, encoded} <- Jason.encode(data, pretty: true),
+      with {:ok, encoded} <- Jason.encode(data, pretty: true),
            :ok <- File.write(tmp, encoded <> "\n"),
            :ok <- File.rename(tmp, path) do
         :ok

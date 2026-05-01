@@ -55,6 +55,26 @@ defmodule SymphonyElixir.TrackerServerCommentLogTest do
     assert Process.alive?(pid)
   end
 
+  test "append/2 routes to the module-name registered server" do
+    file =
+      Path.join(
+        System.tmp_dir!(),
+        "tracker-default-server-#{System.unique_integer([:positive])}.jsonl"
+      )
+
+    on_exit(fn -> File.rm(file) end)
+
+    {:ok, _pid} = CommentLog.start_link(name: CommentLog, path: file)
+
+    on_exit(fn ->
+      if pid = Process.whereis(CommentLog), do: GenServer.stop(pid)
+    end)
+
+    assert :ok = CommentLog.append("default-task", "via 2-arity")
+    [line] = file |> File.read!() |> String.split("\n", trim: true)
+    assert %{"issue_id" => "default-task", "body" => "via 2-arity"} = Jason.decode!(line)
+  end
+
   test "concurrent callers all see :ok and the file ends with N lines", %{jsonl_file: file} do
     name = :"comment_log_conc_#{System.unique_integer([:positive])}"
     {:ok, _pid} = CommentLog.start_link(name: name, path: file)

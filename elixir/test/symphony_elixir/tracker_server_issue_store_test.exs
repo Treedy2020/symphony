@@ -203,4 +203,30 @@ defmodule SymphonyElixir.TrackerServerIssueStoreTest do
     assert File.exists?(file)
     assert {:ok, []} = IssueStore.load(file)
   end
+
+  test "load returns error when write_atomic fails due to missing parent directory", %{dir: dir} do
+    # A path whose parent does not exist: File.read returns :enoent (hits the
+    # auto-create branch), then File.write(tmp) also fails with :enoent because
+    # the parent dir never existed — exercising the write_atomic failure path.
+    path = Path.join(dir, "nonexistent-sub/tracker.json")
+    assert {:error, _} = IssueStore.load(path)
+  end
+
+  @tag :unix
+  test "load returns file_read error on a non-readable file", %{json_file: file} do
+    # Skip when running as root (root can read 0o000 files)
+    uid =
+      case System.cmd("id", ["-u"]) do
+        {out, 0} -> String.trim(out)
+        _ -> "unknown"
+      end
+
+    unless uid == "0" do
+      File.write!(file, "anything")
+      File.chmod!(file, 0o000)
+      on_exit(fn -> File.chmod!(file, 0o600) end)
+
+      assert {:error, {:file_read, _}} = IssueStore.load(file)
+    end
+  end
 end

@@ -149,12 +149,6 @@ defmodule SymphonyElixir.TrackerServer.Router do
           {:ok, %{} = decoded} -> {:ok, decoded, conn}
           _ -> {:error, conn}
         end
-
-      {:more, _partial, conn} ->
-        {:error, conn}
-
-      {:error, _reason} ->
-        {:error, conn}
     end
   end
 

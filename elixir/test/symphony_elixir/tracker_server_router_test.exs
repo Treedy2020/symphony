@@ -29,7 +29,13 @@ defmodule SymphonyElixir.TrackerServerRouterTest do
       Application.delete_env(:symphony_elixir, :tracker_server_token)
     end)
 
-    {:ok, %{tracker_file: file, comments_file: comments}}
+    {:ok, %{tracker_file: file, comments_file: comments, dir: dir}}
+  end
+
+  defp set_corrupted_tracker_file(dir) do
+    path = Path.join(dir, "corrupted.json")
+    File.write!(path, "{not actually json")
+    Application.put_env(:symphony_elixir, :tracker_server_file, path)
   end
 
   defp call(method, path, body, headers \\ []) do
@@ -84,6 +90,11 @@ defmodule SymphonyElixir.TrackerServerRouterTest do
     assert conn.status == 401
   end
 
+  test "POST /issues/by_ids with malformed JSON returns 400" do
+    conn = call(:post, "/issues/by_ids", "{not json")
+    assert conn.status == 400
+  end
+
   test "POST /issues/by_ids returns matching issues, drops unknown ids" do
     conn = call(:post, "/issues/by_ids", %{"ids" => ["a", "missing"]})
     assert conn.status == 200
@@ -100,6 +111,11 @@ defmodule SymphonyElixir.TrackerServerRouterTest do
     conn = call(:post, "/issues/by_ids", %{"ids" => []})
     assert conn.status == 200
     assert Jason.decode!(conn.resp_body) == %{"issues" => []}
+  end
+
+  test "POST /issues/:id/comments with malformed JSON returns 400" do
+    conn = call(:post, "/issues/a/comments", "{not json")
+    assert conn.status == 400
   end
 
   test "POST /issues/:id/comments writes a JSONL line and returns success", %{comments_file: comments} do
@@ -126,6 +142,11 @@ defmodule SymphonyElixir.TrackerServerRouterTest do
     assert conn.status == 200
   end
 
+  test "PATCH /issues/:id with malformed JSON returns 400" do
+    conn = call(:patch, "/issues/a", "{not json")
+    assert conn.status == 400
+  end
+
   test "PATCH /issues/:id updates state and returns success", %{tracker_file: file} do
     conn = call(:patch, "/issues/a", %{"state" => "Done"})
     assert conn.status == 200
@@ -149,6 +170,38 @@ defmodule SymphonyElixir.TrackerServerRouterTest do
     conn = call(:patch, "/issues/missing", %{"state" => "Done"})
     assert conn.status == 404
     assert %{"success" => false, "error" => "unknown_issue_id"} = Jason.decode!(conn.resp_body)
+  end
+
+  test "POST /issues/search returns 500 when tracker.json is malformed", %{dir: dir} do
+    set_corrupted_tracker_file(dir)
+    conn = call(:post, "/issues/search", %{"states" => ["Todo"]})
+    assert conn.status == 500
+    assert %{"success" => false} = Jason.decode!(conn.resp_body)
+  end
+
+  test "POST /issues/by_ids returns 500 when tracker.json is malformed", %{dir: dir} do
+    set_corrupted_tracker_file(dir)
+    conn = call(:post, "/issues/by_ids", %{"ids" => ["a"]})
+    assert conn.status == 500
+    assert %{"success" => false} = Jason.decode!(conn.resp_body)
+  end
+
+  test "PATCH /issues/:id returns 500 when tracker.json is malformed", %{dir: dir} do
+    set_corrupted_tracker_file(dir)
+    conn = call(:patch, "/issues/a", %{"state" => "Done"})
+    assert conn.status == 500
+    assert %{"success" => false} = Jason.decode!(conn.resp_body)
+  end
+
+  test "POST /issues/:id/comments returns 500 when comment log path is unwritable" do
+    bad_name = :"router_bad_log_#{System.unique_integer([:positive])}"
+    bad_path = "/dev/symphony-tracker-test-#{System.unique_integer([:positive])}/comments.jsonl"
+    {:ok, _pid} = CommentLog.start_link(name: bad_name, path: bad_path)
+    Application.put_env(:symphony_elixir, :tracker_server_comment_log, bad_name)
+
+    conn = call(:post, "/issues/a/comments", %{"body" => "stray"})
+    assert conn.status == 500
+    assert %{"success" => false} = Jason.decode!(conn.resp_body)
   end
 
   test "unknown route returns 404" do
