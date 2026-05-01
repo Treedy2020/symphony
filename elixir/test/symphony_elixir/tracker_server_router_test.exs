@@ -83,4 +83,22 @@ defmodule SymphonyElixir.TrackerServerRouterTest do
     conn = call(:post, "/issues/search", %{"states" => ["Todo"]}, [{"authorization", "Bearer wrong"}])
     assert conn.status == 401
   end
+
+  test "POST /issues/by_ids returns matching issues, drops unknown ids" do
+    conn = call(:post, "/issues/by_ids", %{"ids" => ["a", "missing"]})
+    assert conn.status == 200
+    assert %{"issues" => [issue]} = Jason.decode!(conn.resp_body)
+    assert issue["id"] == "a"
+  end
+
+  test "POST /issues/by_ids with non-array ids returns 400" do
+    conn = call(:post, "/issues/by_ids", %{"ids" => "a"})
+    assert conn.status == 400
+  end
+
+  test "POST /issues/by_ids with empty ids returns empty array" do
+    conn = call(:post, "/issues/by_ids", %{"ids" => []})
+    assert conn.status == 200
+    assert Jason.decode!(conn.resp_body) == %{"issues" => []}
+  end
 end

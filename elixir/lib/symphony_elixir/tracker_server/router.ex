@@ -19,6 +19,13 @@ defmodule SymphonyElixir.TrackerServer.Router do
     end
   end
 
+  post "/issues/by_ids" do
+    case read_json_body(conn) do
+      {:ok, body, conn} -> handle_by_ids(conn, body)
+      {:error, conn} -> bad_request(conn)
+    end
+  end
+
   match _ do
     send_json(conn, 404, %{"success" => false, "error" => "not_found"})
   end
@@ -31,6 +38,24 @@ defmodule SymphonyElixir.TrackerServer.Router do
         case IssueStore.load(file) do
           {:ok, issues} ->
             send_json(conn, 200, %{"issues" => IssueStore.search(issues, states)})
+
+          {:error, reason} ->
+            send_json(conn, 500, %{"success" => false, "error" => inspect(reason)})
+        end
+
+      :error ->
+        bad_request(conn)
+    end
+  end
+
+  defp handle_by_ids(conn, body) do
+    case fetch_string_array(body, "ids") do
+      {:ok, ids} ->
+        file = Application.fetch_env!(:symphony_elixir, :tracker_server_file)
+
+        case IssueStore.load(file) do
+          {:ok, issues} ->
+            send_json(conn, 200, %{"issues" => IssueStore.by_ids(issues, ids)})
 
           {:error, reason} ->
             send_json(conn, 500, %{"success" => false, "error" => inspect(reason)})
