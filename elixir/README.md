@@ -118,6 +118,54 @@ tracker:
   terminal_states: ["Done", "Closed", "Cancelled", "Canceled", "Duplicate"]
 ```
 
+### Running a local tracker server
+
+If you don't have an existing `custom_http` server, the bundled
+`bin/symphony-tracker` escript implements the contract above against a
+hand-editable JSON file:
+
+```bash
+./bin/symphony-tracker --file ./tracker.json --port 8787
+```
+
+Flags:
+
+- `--file` — path to the tracker JSON. Default `./tracker.json`. Created
+  empty (`{"issues": []}`) on first start if missing.
+- `--port` — HTTP listen port. Default `8787`.
+- `--bind` — listen address. Default `127.0.0.1`. Use `0.0.0.0` only when
+  you also set `--token`; the server has no other auth.
+- `--token` — Bearer token. Falls back to `SYMPHONY_TRACKER_API_KEY`. When
+  unset, requests are not authenticated.
+
+The server reads from two files:
+
+- `tracker.json` — your source of truth. Edit by hand to add/remove issues;
+  `PATCH /issues/:id` from Symphony writes back here atomically. Each issue
+  must have non-empty string `id`, `identifier`, `title`, and `state`; `id`
+  must be unique within the file.
+- `tracker.comments.jsonl` — append-only log of agent comments, one JSON
+  object per line. Created on the first comment.
+
+Minimal `tracker.json` to get started:
+
+```json
+{
+  "issues": [
+    {
+      "id": "task-1",
+      "identifier": "LOCAL-1",
+      "title": "Try the local tracker",
+      "state": "Todo"
+    }
+  ]
+}
+```
+
+Caveat: hand-editing the same `state` field that Symphony is concurrently
+PATCHing can clobber the agent's write. Prefer to edit issues that are not
+currently being worked.
+
 The custom HTTP tracker expects a small JSON API:
 
 - `POST /issues/search` with `{"states":["Todo"]}` returns `{"issues":[...]}` or a bare issue array.
