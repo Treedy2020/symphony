@@ -107,6 +107,77 @@ You are working on a Linear issue {{ issue.identifier }}.
 Title: {{ issue.title }} Body: {{ issue.description }}
 ```
 
+For local or internal trackers, use `custom_http` instead of Linear:
+
+```yaml
+tracker:
+  kind: custom_http
+  endpoint: "http://127.0.0.1:8787"
+  api_key: $SYMPHONY_TRACKER_API_KEY
+  active_states: ["Todo", "In Progress"]
+  terminal_states: ["Done", "Closed", "Cancelled", "Canceled", "Duplicate"]
+```
+
+### Running a local tracker server
+
+If you don't have an existing `custom_http` server, the bundled
+`bin/symphony-tracker` escript implements the contract above against a
+hand-editable JSON file:
+
+```bash
+./bin/symphony-tracker --file ./tracker.json --port 8787
+```
+
+Flags:
+
+- `--file` — path to the tracker JSON. Default `./tracker.json`. Created
+  empty (`{"issues": []}`) on first start if missing.
+- `--port` — HTTP listen port. Default `8787`.
+- `--bind` — listen address. Default `127.0.0.1`. Use `0.0.0.0` only when
+  you also set `--token`; the server has no other auth.
+- `--token` — Bearer token. Falls back to `SYMPHONY_TRACKER_API_KEY`. When
+  unset, requests are not authenticated.
+
+The server reads from two files:
+
+- `tracker.json` — your source of truth. Edit by hand to add/remove issues;
+  `PATCH /issues/:id` from Symphony writes back here atomically. Each issue
+  must have non-empty string `id`, `identifier`, `title`, and `state`; `id`
+  must be unique within the file.
+- `tracker.comments.jsonl` — append-only log of agent comments, one JSON
+  object per line. Created on the first comment.
+
+Minimal `tracker.json` to get started:
+
+```json
+{
+  "issues": [
+    {
+      "id": "task-1",
+      "identifier": "LOCAL-1",
+      "title": "Try the local tracker",
+      "state": "Todo"
+    }
+  ]
+}
+```
+
+Caveat: hand-editing the same `state` field that Symphony is concurrently
+PATCHing can clobber the agent's write. Prefer to edit issues that are not
+currently being worked.
+
+The custom HTTP tracker expects a small JSON API:
+
+- `POST /issues/search` with `{"states":["Todo"]}` returns `{"issues":[...]}` or a bare issue array.
+- `POST /issues/by_ids` with `{"ids":["issue-1"]}` returns `{"issues":[...]}` or a bare issue array.
+- `POST /issues/:id/comments` with `{"body":"..."}` returns any 2xx response, optionally `{"success":true}`.
+- `PATCH /issues/:id` with `{"state":"Done"}` returns any 2xx response, optionally `{"success":true}`.
+
+Issue objects should include `id`, `identifier`, `title`, and `state`. Optional fields are
+`description`, `priority`, `branch_name` or `branchName`, `url`, `assignee_id` or `assigneeId`,
+`labels`, `blocked_by` or `blockedBy`, `assigned_to_worker` or `assignedToWorker`, `created_at` or
+`createdAt`, and `updated_at` or `updatedAt`.
+
 Notes:
 
 - If a value is missing, defaults are used.

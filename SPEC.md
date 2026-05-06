@@ -349,12 +349,15 @@ Fields:
 
 - `kind` (string)
   - REQUIRED for dispatch.
-  - Current supported value: `linear`
+  - Core supported value: `linear`
+  - Implementations MAY add values such as `custom_http`.
 - `endpoint` (string)
   - Default for `tracker.kind == "linear"`: `https://api.linear.app/graphql`
+  - REQUIRED when `tracker.kind == "custom_http"`.
 - `api_key` (string)
   - MAY be a literal token or `$VAR_NAME`.
   - Canonical environment variable for `tracker.kind == "linear"`: `LINEAR_API_KEY`.
+  - Suggested environment variable for `tracker.kind == "custom_http"`: `SYMPHONY_TRACKER_API_KEY`.
   - If `$VAR_NAME` resolves to an empty string, treat the key as missing.
 - `project_slug` (string)
   - REQUIRED for dispatch when `tracker.kind == "linear"`.
@@ -570,7 +573,7 @@ This section is intentionally redundant so a coding agent can implement the conf
 Extension fields are documented in the extension section that defines them. Core conformance does
 not require recognizing or validating extension fields unless that extension is implemented.
 
-- `tracker.kind`: string, REQUIRED, currently `linear`
+- `tracker.kind`: string, REQUIRED, core value `linear`; implementations MAY add values such as `custom_http`
 - `tracker.endpoint`: string, default `https://api.linear.app/graphql` when `tracker.kind=linear`
 - `tracker.api_key`: string or `$VAR`, canonical env `LINEAR_API_KEY` when `tracker.kind=linear`
 - `tracker.project_slug`: string, REQUIRED when `tracker.kind=linear`
@@ -1159,6 +1162,19 @@ Linear-specific requirements for `tracker.kind == "linear"`:
 - Page size default: `50`
 - Network timeout: `30000 ms`
 
+### 11.3 Query Semantics (Custom HTTP)
+
+Implementation extension requirements for `tracker.kind == "custom_http"`:
+
+- `tracker.endpoint` is the base URL for the tracker service.
+- If `tracker.api_key` is configured, send it as `Authorization: Bearer <token>`.
+- `POST /issues/search` accepts `{"states":[...]}` and returns `{"issues":[...]}` or a bare issue array.
+- `POST /issues/by_ids` accepts `{"ids":[...]}` and returns `{"issues":[...]}` or a bare issue array.
+- `POST /issues/:id/comments` accepts `{"body":"..."}` and succeeds on any 2xx response unless the JSON body is `{"success":false}`.
+- `PATCH /issues/:id` accepts `{"state":"..."}` and succeeds on any 2xx response unless the JSON body is `{"success":false}`.
+- Issue objects SHOULD include `id`, `identifier`, `title`, and `state`; implementations MAY normalize additional tracker-specific fields.
+- Network timeout: `30000 ms`
+
 Important:
 
 - Linear GraphQL schema details can drift. Keep query construction isolated and test the exact query
@@ -1167,7 +1183,7 @@ Important:
 A non-Linear implementation MAY change transport details, but the normalized outputs MUST match the
 domain model in Section 4.
 
-### 11.3 Normalization Rules
+### 11.4 Normalization Rules
 
 Candidate issue normalization SHOULD produce fields listed in Section 4.1.1.
 
@@ -1178,7 +1194,7 @@ Additional normalization details:
 - `priority` -> integer only (non-integers become null)
 - `created_at` and `updated_at` -> parse ISO-8601 timestamps
 
-### 11.4 Error Handling Contract
+### 11.5 Error Handling Contract
 
 RECOMMENDED error categories:
 

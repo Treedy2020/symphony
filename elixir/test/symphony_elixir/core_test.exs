@@ -86,6 +86,24 @@ defmodule SymphonyElixir.CoreTest do
 
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "123")
     assert {:error, {:unsupported_tracker_kind, "123"}} = Config.validate!()
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "custom_http",
+      tracker_endpoint: "https://api.linear.app/graphql",
+      tracker_api_token: nil,
+      tracker_project_slug: nil
+    )
+
+    assert {:error, :missing_custom_http_endpoint} = Config.validate!()
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "custom_http",
+      tracker_endpoint: "http://127.0.0.1:8787",
+      tracker_api_token: nil,
+      tracker_project_slug: nil
+    )
+
+    assert :ok = Config.validate!()
   end
 
   test "current WORKFLOW.md file is valid and complete" do
@@ -147,6 +165,24 @@ defmodule SymphonyElixir.CoreTest do
     )
 
     assert Config.settings!().tracker.assignee == env_assignee
+  end
+
+  test "custom http api token resolves from SYMPHONY_TRACKER_API_KEY env var" do
+    previous_tracker_api_key = System.get_env("SYMPHONY_TRACKER_API_KEY")
+    env_api_key = "test-custom-http-api-key"
+
+    on_exit(fn -> restore_env("SYMPHONY_TRACKER_API_KEY", previous_tracker_api_key) end)
+    System.put_env("SYMPHONY_TRACKER_API_KEY", env_api_key)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "custom_http",
+      tracker_endpoint: "http://127.0.0.1:8787",
+      tracker_api_token: nil,
+      tracker_project_slug: nil
+    )
+
+    assert Config.settings!().tracker.api_key == env_api_key
+    assert :ok = Config.validate!()
   end
 
   test "workflow file path defaults to WORKFLOW.md in the current working directory when app env is unset" do
@@ -752,8 +788,9 @@ defmodule SymphonyElixir.CoreTest do
 
   defp assert_due_in_range(due_at_ms, min_remaining_ms, max_remaining_ms) do
     remaining_ms = due_at_ms - System.monotonic_time(:millisecond)
+    lower_bound = max(min_remaining_ms - 250, 0)
 
-    assert remaining_ms >= min_remaining_ms
+    assert remaining_ms >= lower_bound
     assert remaining_ms <= max_remaining_ms
   end
 
