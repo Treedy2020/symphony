@@ -40,6 +40,21 @@ defmodule SymphonyElixir.TrackerServer.IssueStore do
     Enum.filter(issues, fn issue -> Map.get(issue, "id") in set end)
   end
 
+  @spec create_batch(Path.t(), [map()]) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  def create_batch(path, new_issues) when is_binary(path) and is_list(new_issues) do
+    with {:ok, existing} <- load(path),
+         :ok <- validate_each(new_issues),
+         :ok <- validate_unique_ids(new_issues),
+         :ok <- check_no_conflict(existing, new_issues) do
+      write_atomic(path, %{"issues" => existing ++ new_issues})
+      |> case do
+        :ok -> {:ok, length(new_issues)}
+        error -> error
+      end
+    end
+  end
+
   @spec update_state(Path.t(), String.t(), String.t()) ::
           :ok | {:error, :unknown_issue_id | term()}
   def update_state(path, id, new_state)
@@ -77,6 +92,17 @@ defmodule SymphonyElixir.TrackerServer.IssueStore do
   defp validate_issue(_), do: {:error, :issue_must_be_object}
 
   defp issue_summary(issue) when is_map(issue), do: Map.take(issue, ["id", "identifier"])
+
+  defp check_no_conflict(existing, new_issues) do
+    existing_ids = MapSet.new(existing, &Map.get(&1, "id"))
+    conflicts = Enum.filter(new_issues, &(Map.get(&1, "id") in existing_ids))
+
+    if conflicts == [] do
+      :ok
+    else
+      {:error, {:conflicting_ids, Enum.map(conflicts, &Map.get(&1, "id"))}}
+    end
+  end
 
   defp validate_unique_ids(issues) do
     ids = Enum.map(issues, &Map.get(&1, "id"))

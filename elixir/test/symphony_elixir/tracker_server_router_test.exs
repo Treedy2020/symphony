@@ -204,6 +204,60 @@ defmodule SymphonyElixir.TrackerServerRouterTest do
     assert %{"success" => false} = Jason.decode!(conn.resp_body)
   end
 
+  # POST /issues/batch
+
+  test "POST /issues/batch creates issues and returns count" do
+    new_issues = [
+      %{"id" => "c", "identifier" => "X-3", "title" => "new task", "state" => "Todo"}
+    ]
+
+    conn = call(:post, "/issues/batch", %{"issues" => new_issues})
+    assert conn.status == 200
+    assert %{"success" => true, "created" => 1} = Jason.decode!(conn.resp_body)
+  end
+
+  test "POST /issues/batch returns 409 on id conflict with existing", %{tracker_file: file} do
+    _ = file
+
+    clash = [%{"id" => "a", "identifier" => "X-99", "title" => "dupe", "state" => "Todo"}]
+    conn = call(:post, "/issues/batch", %{"issues" => clash})
+    assert conn.status == 409
+    assert %{"error" => "conflicting_ids"} = Jason.decode!(conn.resp_body)
+  end
+
+  test "POST /issues/batch returns 400 when issues field is missing" do
+    conn = call(:post, "/issues/batch", %{})
+    assert conn.status == 400
+  end
+
+  test "POST /issues/batch returns 400 when issues is not a list of objects" do
+    conn = call(:post, "/issues/batch", %{"issues" => ["not-an-object"]})
+    assert conn.status == 400
+  end
+
+  test "POST /issues/batch returns 400 when an issue is missing a required field" do
+    bad = [%{"id" => "x", "identifier" => "X-1", "title" => "no state"}]
+    conn = call(:post, "/issues/batch", %{"issues" => bad})
+    assert conn.status == 400
+  end
+
+  test "POST /issues/batch returns 400 on malformed JSON body" do
+    conn =
+      conn(:post, "/issues/batch", "not json {{{")
+      |> put_req_header("content-type", "application/json")
+      |> Router.call([])
+
+    assert conn.status == 400
+  end
+
+  test "POST /issues/batch returns 400 on corrupted tracker file", %{dir: dir} do
+    set_corrupted_tracker_file(dir)
+
+    new = [%{"id" => "z", "identifier" => "X-9", "title" => "t", "state" => "Todo"}]
+    conn = call(:post, "/issues/batch", %{"issues" => new})
+    assert conn.status == 400
+  end
+
   test "unknown route returns 404" do
     conn = call(:get, "/no-such-thing", %{})
     assert conn.status == 404

@@ -12,6 +12,13 @@ defmodule SymphonyElixir.TrackerServer.Router do
   plug :authenticate
   plug :dispatch
 
+  post "/issues/batch" do
+    case read_json_body(conn) do
+      {:ok, body, conn} -> handle_batch_create(conn, body)
+      {:error, conn} -> bad_request(conn)
+    end
+  end
+
   post "/issues/search" do
     case read_json_body(conn) do
       {:ok, body, conn} -> handle_search(conn, body)
@@ -42,6 +49,23 @@ defmodule SymphonyElixir.TrackerServer.Router do
 
   match _ do
     send_json(conn, 404, %{"success" => false, "error" => "not_found"})
+  end
+
+  defp handle_batch_create(conn, body) do
+    with_field(conn, body, "issues", &fetch_object_list/2, fn issues ->
+      file = Application.fetch_env!(:symphony_elixir, :tracker_server_file)
+
+      case IssueStore.create_batch(file, issues) do
+        {:ok, count} ->
+          send_json(conn, 200, %{"success" => true, "created" => count})
+
+        {:error, {:conflicting_ids, ids}} ->
+          send_json(conn, 409, %{"success" => false, "error" => "conflicting_ids", "ids" => ids})
+
+        {:error, _reason} ->
+          bad_request(conn)
+      end
+    end)
   end
 
   defp handle_search(conn, body) do
@@ -156,6 +180,16 @@ defmodule SymphonyElixir.TrackerServer.Router do
     case Map.get(body, key) do
       list when is_list(list) ->
         if Enum.all?(list, &is_binary/1), do: {:ok, list}, else: :error
+
+      _ ->
+        :error
+    end
+  end
+
+  defp fetch_object_list(body, key) do
+    case Map.get(body, key) do
+      [_ | _] = list ->
+        if Enum.all?(list, &is_map/1), do: {:ok, list}, else: :error
 
       _ ->
         :error

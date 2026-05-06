@@ -212,6 +212,64 @@ defmodule SymphonyElixir.TrackerServerIssueStoreTest do
     assert {:error, _} = IssueStore.load(path)
   end
 
+  # create_batch/2
+
+  test "create_batch appends new issues and returns count", %{json_file: file} do
+    File.write!(file, ~s({"issues":[{"id":"a","identifier":"X-1","title":"existing","state":"Todo"}]}))
+
+    new = [%{"id" => "b", "identifier" => "X-2", "title" => "new task", "state" => "Todo"}]
+    assert {:ok, 1} = IssueStore.create_batch(file, new)
+
+    assert {:ok, issues} = IssueStore.load(file)
+    assert length(issues) == 2
+    assert Enum.any?(issues, &(&1["id"] == "b"))
+  end
+
+  test "create_batch creates file when missing", %{json_file: file} do
+    new = [%{"id" => "t1", "identifier" => "T-1", "title" => "first", "state" => "Todo"}]
+    assert {:ok, 1} = IssueStore.create_batch(file, new)
+    assert {:ok, [%{"id" => "t1"}]} = IssueStore.load(file)
+  end
+
+  test "create_batch returns conflicting_ids error on id clash with existing", %{json_file: file} do
+    File.write!(file, ~s({"issues":[{"id":"a","identifier":"X-1","title":"t","state":"Todo"}]}))
+    clash = [%{"id" => "a", "identifier" => "X-2", "title" => "dupe", "state" => "Todo"}]
+    assert {:error, {:conflicting_ids, ["a"]}} = IssueStore.create_batch(file, clash)
+  end
+
+  test "create_batch returns error on duplicate ids within the batch", %{json_file: file} do
+    File.write!(file, ~s({"issues":[]}))
+
+    dupes = [
+      %{"id" => "x", "identifier" => "X-1", "title" => "a", "state" => "Todo"},
+      %{"id" => "x", "identifier" => "X-2", "title" => "b", "state" => "Todo"}
+    ]
+
+    assert {:error, {:duplicate_ids, ["x"]}} = IssueStore.create_batch(file, dupes)
+  end
+
+  test "create_batch returns error when an issue is missing a required field", %{json_file: file} do
+    File.write!(file, ~s({"issues":[]}))
+    bad = [%{"id" => "t1", "identifier" => "T-1", "title" => "no state"}]
+    assert {:error, _} = IssueStore.create_batch(file, bad)
+  end
+
+  @tag :unix
+  test "create_batch propagates write_atomic error when directory is not writable", %{dir: dir, json_file: file} do
+    File.write!(file, ~s({"issues":[]}))
+    # Make dir read-only: load (File.read) succeeds, write_atomic (File.write tmp) fails
+    File.chmod!(dir, 0o555)
+    on_exit(fn -> File.chmod!(dir, 0o755) end)
+
+    new = [%{"id" => "t1", "identifier" => "T-1", "title" => "t", "state" => "Todo"}]
+
+    uid = elem(System.cmd("id", ["-u"]), 0) |> String.trim()
+
+    unless uid == "0" do
+      assert {:error, _} = IssueStore.create_batch(file, new)
+    end
+  end
+
   @tag :unix
   test "load returns file_read error on a non-readable file", %{json_file: file} do
     # Skip when running as root (root can read 0o000 files)
