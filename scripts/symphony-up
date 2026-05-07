@@ -1,0 +1,83 @@
+#!/bin/sh
+# symphony-up: start local tracker + symphony from the current project directory.
+# Usage: symphony-up [--port WEB_PORT] [--tracker-port PORT] [--file PATH] [WORKFLOW.md]
+
+set -e
+
+# ── defaults ────────────────────────────────────────────────────────────────
+TRACKER_PORT=8787
+TRACKER_FILE="./tracker.json"
+WEB_PORT=""
+WORKFLOW=""
+
+# ── parse args ──────────────────────────────────────────────────────────────
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --tracker-port) TRACKER_PORT="$2"; shift 2 ;;
+    --file)         TRACKER_FILE="$2"; shift 2 ;;
+    --port)         WEB_PORT="$2"; shift 2 ;;
+    --help|-h)
+      echo "Usage: symphony-up [--port WEB_PORT] [--tracker-port PORT] [--file PATH] [WORKFLOW.md]"
+      echo ""
+      echo "  --file          Path to tracker.json (default: ./tracker.json)"
+      echo "  --tracker-port  Tracker HTTP port    (default: 8787)"
+      echo "  --port          Enable symphony web UI on this port"
+      echo ""
+      echo "  SYMPHONY_TRACKER_API_KEY env var is passed to tracker as bearer token."
+      exit 0 ;;
+    --*)            echo "Unknown flag: $1" >&2; exit 1 ;;
+    *)              WORKFLOW="$1"; shift ;;
+  esac
+done
+
+# auto-detect WORKFLOW.md in current directory
+if [ -z "$WORKFLOW" ] && [ -f "./WORKFLOW.md" ]; then
+  WORKFLOW="./WORKFLOW.md"
+fi
+
+if [ -z "$WORKFLOW" ]; then
+  echo "Error: WORKFLOW.md not found in current directory." >&2
+  echo "Usage: symphony-up [--port WEB_PORT] [--tracker-port PORT] [--file PATH] [WORKFLOW.md]" >&2
+  exit 1
+fi
+
+# ── check if tracker is already running ─────────────────────────────────────
+TRACKER_ALREADY_RUNNING=0
+if lsof -ti ":$TRACKER_PORT" >/dev/null 2>&1; then
+  echo "→ tracker already running on port $TRACKER_PORT"
+  TRACKER_ALREADY_RUNNING=1
+fi
+
+# ── start tracker in background ─────────────────────────────────────────────
+TRACKER_PID=""
+if [ "$TRACKER_ALREADY_RUNNING" -eq 0 ]; then
+  symphony-tracker \
+    --file "$TRACKER_FILE" \
+    --port "$TRACKER_PORT" \
+    ${SYMPHONY_TRACKER_API_KEY:+--token "$SYMPHONY_TRACKER_API_KEY"} &
+  TRACKER_PID=$!
+  echo "→ tracker started (pid $TRACKER_PID) on port $TRACKER_PORT, file: $TRACKER_FILE"
+  sleep 1  # give Bandit a moment to bind
+fi
+
+# ── cleanup on exit ──────────────────────────────────────────────────────────
+cleanup() {
+  if [ -n "$TRACKER_PID" ]; then
+    echo ""
+    echo "→ stopping tracker (pid $TRACKER_PID)..."
+    kill "$TRACKER_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup INT TERM EXIT
+
+# ── start symphony ───────────────────────────────────────────────────────────
+SYMPHONY_ARGS="$WORKFLOW"
+if [ -n "$WEB_PORT" ]; then
+  SYMPHONY_ARGS="--port $WEB_PORT $SYMPHONY_ARGS"
+fi
+
+echo "→ starting symphony ($WORKFLOW)${WEB_PORT:+ with web UI at http://127.0.0.1:$WEB_PORT}"
+echo ""
+
+# shellcheck disable=SC2086
+symphony --i-understand-that-this-will-be-running-without-the-usual-guardrails $SYMPHONY_ARGS
